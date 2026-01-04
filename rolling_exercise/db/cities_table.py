@@ -1,8 +1,11 @@
-from sqlalchemy import Table, Column, Integer, String
-from db.database import metadata
+from sqlalchemy import Table, Column, Integer, String, MetaData
 
-cities = Table(
-    'cities', metadata,
-    Column('id', Integer, primary_key=True, autoincrement=True),
-    Column('name', String, unique=True, nullable=False),
-)
+
+def _define_cities_table(metadata: MetaData) -> Table:
+    cities = Table(
+        'cities', metadata,
+        Column('id', Integer, primary_key=True, autoincrement=True),
+        Column('name', String, unique=True, nullable=False),
+    )
+
+    return cities

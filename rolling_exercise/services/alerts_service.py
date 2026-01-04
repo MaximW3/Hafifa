@@ -3,15 +3,16 @@ from typing import List
 
 from sqlalchemy import Select, select
 
-from db.database import db
+from db.pgDatabase import PGDatabase
 from entities.city import City
 from entities.report import Report
 from exceptions.notExistingCityException import NotExistingCityException
 from exceptions.notValidDateException import NotValidDateException
 from models.alertReturnRow import AlertReturnRow
-from services import city_service
+from services.service import Service
+from services.city_service import CityService
 from settings import settings
-from utils.utils import is_valid_date
+from utils.serviceUtils import is_valid_date
 
 
 def _get_all_alert_stmt() -> Select:
@@ -25,7 +26,7 @@ def _get_all_alert_stmt() -> Select:
         )
         .join(Report.city)
         .where(
-            Report.overall_aqi > 300
+            Report.overall_aqi > settings.ALERT_OVERALL_AQI
         )
     )
 
@@ -34,16 +35,6 @@ def _get_all_alert_stmt() -> Select:
 
 def _get_alert_return_rows(reports_results: List[Report]) -> List[AlertReturnRow]:
     return [AlertReturnRow.from_report(report) for report in reports_results]
-
-
-async def get_all_alerts() -> List[AlertReturnRow]:
-
-    stmt = _get_all_alert_stmt()
-    alerts_results = await db.execute_with_plain_results(stmt)
-
-    alerts_list = _get_alert_return_rows(alerts_results)
-
-    return alerts_list
 
 
 def _get_alerts_since_date_stmt(start_date: datetime) -> Select:
@@ -57,26 +48,11 @@ def _get_alerts_since_date_stmt(start_date: datetime) -> Select:
         )
         .join(Report.city)
         .where(
-            (Report.overall_aqi > 300) & (Report.date > start_date)
+            (Report.overall_aqi > settings.ALERT_OVERALL_AQI) & (Report.date > start_date)
         )
     )
 
     return stmt
-
-
-async def get_alerts_since_date(start_date: str) -> List[AlertReturnRow]:
-
-    if not is_valid_date(start_date):
-        raise NotValidDateException
-
-    start_date = datetime.strptime(start_date, settings.DATE_FORMAT)
-
-    stmt = _get_alerts_since_date_stmt(start_date)
-    alerts_results = await db.execute_with_plain_results(stmt)
-
-    alerts_list = _get_alert_return_rows(alerts_results)
-
-    return alerts_list
 
 
 def _get_alerts_by_city_stmt(city_name: str) -> Select:
@@ -90,21 +66,49 @@ def _get_alerts_by_city_stmt(city_name: str) -> Select:
         )
         .join(Report.city)
         .where(
-            (Report.overall_aqi > 300) & Report.city.has(City.name == city_name)
+            (Report.overall_aqi > settings.ALERT_OVERALL_AQI) & Report.city.has(City.name == city_name)
         )
     )
 
     return stmt
 
 
-async def get_alerts_by_city(city_name) -> List[AlertReturnRow]:
+class AlertsService(Service):
+    def __init__(self, db: PGDatabase):
+        super().__init__(db)
+        self.city_service = CityService(db)
 
-    if not await city_service.is_existing_city(city_name):
-        raise NotExistingCityException
+    async def get_all_alerts(self) -> List[AlertReturnRow]:
+    
+        stmt = _get_all_alert_stmt()
+        alerts_results = await self.db.execute_with_plain_results(stmt)
+    
+        alerts_list = _get_alert_return_rows(alerts_results)
+    
+        return alerts_list
+    
+    async def get_alerts_since_date(self, start_date: str) -> List[AlertReturnRow]:
 
-    stmt = _get_alerts_by_city_stmt(city_name)
-    alerts_results = await db.execute_with_plain_results(stmt)
+        if not is_valid_date(start_date):
+            raise NotValidDateException
 
-    alerts_list = _get_alert_return_rows(alerts_results)
+        start_date = datetime.strptime(start_date, settings.DATE_FORMAT)
 
-    return alerts_list
+        stmt = _get_alerts_since_date_stmt(start_date)
+        alerts_results = await self.db.execute_with_plain_results(stmt)
+
+        alerts_list = _get_alert_return_rows(alerts_results)
+
+        return alerts_list
+
+    async def get_alerts_by_city(self, city_name) -> List[AlertReturnRow]:
+    
+        if not await self.city_service.is_existing_city(city_name):
+            raise NotExistingCityException
+    
+        stmt = _get_alerts_by_city_stmt(city_name)
+        alerts_results = await self.db.execute_with_plain_results(stmt)
+    
+        alerts_list = _get_alert_return_rows(alerts_results)
+    
+        return alerts_list
